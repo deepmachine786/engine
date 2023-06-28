@@ -104,8 +104,12 @@ class EmbedderConfigBuilder {
 
   FlutterCompositor& GetCompositor();
 
+  FlutterRendererConfig& GetRendererConfig();
+
   void SetRenderTargetType(
-      EmbedderTestBackingStoreProducer::RenderTargetType type);
+      EmbedderTestBackingStoreProducer::RenderTargetType type,
+      FlutterSoftwarePixelFormat software_pixfmt =
+          kFlutterSoftwarePixelFormatNative32);
 
   UniqueEngine LaunchEngine() const;
 

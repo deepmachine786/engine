@@ -93,6 +93,15 @@ public class FlutterViewTest {
   }
 
   @Test
+  public void flutterView_importantForAutofillDoesNotExcludeDescendants() {
+    FlutterView flutterView = new FlutterView(Robolectric.setupActivity(Activity.class));
+
+    // Value should not exclude descendants because platform views are added as child views and
+    // can be eligible for autofill (e.g. a WebView).
+    assertEquals(View.IMPORTANT_FOR_AUTOFILL_YES, flutterView.getImportantForAutofill());
+  }
+
+  @Test
   public void detachFromFlutterEngine_alertsPlatformViews() {
     FlutterView flutterView = new FlutterView(Robolectric.setupActivity(Activity.class));
     FlutterEngine flutterEngine = spy(new FlutterEngine(ctx, mockFlutterLoader, mockFlutterJni));
@@ -175,6 +184,32 @@ public class FlutterViewTest {
   }
 
   @Test
+  public void flutterImageView_revertImageViewAndAvoidNPE() {
+    FlutterView flutterView = new FlutterView(ctx);
+    FlutterEngine flutterEngine = spy(new FlutterEngine(ctx, mockFlutterLoader, mockFlutterJni));
+    FlutterRenderer flutterRenderer = spy(new FlutterRenderer(mockFlutterJni));
+    when(flutterEngine.getRenderer()).thenReturn(flutterRenderer);
+
+    flutterView.attachToFlutterEngine(flutterEngine);
+    flutterView.convertToImageView();
+    assertTrue(flutterView.renderSurface instanceof FlutterImageView);
+
+    // Register a `FlutterUiDisplayListener` callback.
+    // During callback execution it will invoke `flutterImageView.detachFromRenderer()`.
+    flutterView.revertImageView(
+        () -> {
+          // No-op
+        });
+    assertFalse(flutterView.renderSurface instanceof FlutterImageView);
+
+    flutterView.detachFromFlutterEngine();
+    assertEquals(null, flutterView.getCurrentImageSurface());
+
+    // Invoke all registered `FlutterUiDisplayListener` callback
+    mockFlutterJni.onFirstFrame();
+  }
+
+  @Test
   public void onConfigurationChanged_fizzlesWhenNullEngine() {
     FlutterView flutterView = new FlutterView(Robolectric.setupActivity(Activity.class));
     FlutterEngine flutterEngine = spy(new FlutterEngine(ctx, mockFlutterLoader, mockFlutterJni));
@@ -192,6 +227,20 @@ public class FlutterViewTest {
     verify(flutterEngine, times(2)).getSettingsChannel();
   }
 
+  @Test
+  public void onConfigurationChanged_notifiesEngineOfDisplaySize() {
+    FlutterView flutterView = new FlutterView(Robolectric.setupActivity(Activity.class));
+    FlutterEngine flutterEngine = spy(new FlutterEngine(ctx, mockFlutterLoader, mockFlutterJni));
+
+    Configuration configuration = ctx.getResources().getConfiguration();
+
+    flutterView.attachToFlutterEngine(flutterEngine);
+    flutterView.onConfigurationChanged(configuration);
+
+    verify(flutterEngine, times(1))
+        .updateDisplayMetrics(any(Float.class), any(Float.class), any(Float.class));
+  }
+
   // TODO(mattcarroll): turn this into an e2e test. GitHub #42990
   @Test
   public void itSendsLightPlatformBrightnessToFlutter() {
@@ -206,6 +255,8 @@ public class FlutterViewTest {
     SettingsChannel fakeSettingsChannel = mock(SettingsChannel.class);
     SettingsChannel.MessageBuilder fakeMessageBuilder = mock(SettingsChannel.MessageBuilder.class);
     when(fakeMessageBuilder.setTextScaleFactor(any(Float.class))).thenReturn(fakeMessageBuilder);
+    when(fakeMessageBuilder.setNativeSpellCheckServiceDefined(any(Boolean.class)))
+        .thenReturn(fakeMessageBuilder);
     when(fakeMessageBuilder.setBrieflyShowPassword(any(Boolean.class)))
         .thenReturn(fakeMessageBuilder);
     when(fakeMessageBuilder.setUse24HourFormat(any(Boolean.class))).thenReturn(fakeMessageBuilder);
@@ -256,6 +307,8 @@ public class FlutterViewTest {
     SettingsChannel fakeSettingsChannel = mock(SettingsChannel.class);
     SettingsChannel.MessageBuilder fakeMessageBuilder = mock(SettingsChannel.MessageBuilder.class);
     when(fakeMessageBuilder.setTextScaleFactor(any(Float.class))).thenReturn(fakeMessageBuilder);
+    when(fakeMessageBuilder.setNativeSpellCheckServiceDefined(any(Boolean.class)))
+        .thenReturn(fakeMessageBuilder);
     when(fakeMessageBuilder.setBrieflyShowPassword(any(Boolean.class)))
         .thenReturn(fakeMessageBuilder);
     when(fakeMessageBuilder.setUse24HourFormat(any(Boolean.class))).thenReturn(fakeMessageBuilder);
@@ -294,6 +347,8 @@ public class FlutterViewTest {
     SettingsChannel fakeSettingsChannel = mock(SettingsChannel.class);
     SettingsChannel.MessageBuilder fakeMessageBuilder = mock(SettingsChannel.MessageBuilder.class);
     when(fakeMessageBuilder.setTextScaleFactor(any(Float.class))).thenReturn(fakeMessageBuilder);
+    when(fakeMessageBuilder.setNativeSpellCheckServiceDefined(any(Boolean.class)))
+        .thenReturn(fakeMessageBuilder);
     when(fakeMessageBuilder.setPlatformBrightness(any(SettingsChannel.PlatformBrightness.class)))
         .thenReturn(fakeMessageBuilder);
     when(fakeMessageBuilder.setUse24HourFormat(any(Boolean.class))).thenReturn(fakeMessageBuilder);

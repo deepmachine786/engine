@@ -17,7 +17,7 @@ namespace {
 constexpr char kTextPlainFormat[] = "text/plain";
 const UInt32 kKeyPressClickSoundId = 1306;
 
-}  // namespaces
+}  // namespace
 
 namespace flutter {
 
@@ -35,8 +35,23 @@ const char* const kOverlayStyleUpdateNotificationKey =
 
 using namespace flutter;
 
+@interface FlutterPlatformPlugin ()
+
+/**
+ * @brief Whether the status bar appearance is based on the style preferred for this ViewController.
+ *
+ *        The default value is YES.
+ *        Explicitly add `UIViewControllerBasedStatusBarAppearance` as `false` in
+ *        info.plist makes this value to be false.
+ */
+@property(nonatomic, assign) BOOL enableViewControllerBasedStatusBarAppearance;
+
+@end
+
 @implementation FlutterPlatformPlugin {
   fml::WeakPtr<FlutterEngine> _engine;
+  // Used to detect whether this device has live text input ability or not.
+  UITextField* _textField;
 }
 
 - (instancetype)initWithEngine:(fml::WeakPtr<FlutterEngine>)engine {
@@ -45,6 +60,16 @@ using namespace flutter;
 
   if (self) {
     _engine = engine;
+    NSObject* infoValue = [[NSBundle mainBundle]
+        objectForInfoDictionaryKey:@"UIViewControllerBasedStatusBarAppearance"];
+#if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
+    if (infoValue != nil && ![infoValue isKindOfClass:[NSNumber class]]) {
+      FML_LOG(ERROR) << "The value of UIViewControllerBasedStatusBarAppearance in info.plist must "
+                        "be a Boolean type.";
+    }
+#endif
+    _enableViewControllerBasedStatusBarAppearance =
+        (infoValue == nil || [(NSNumber*)infoValue boolValue]);
   }
 
   return self;
@@ -88,6 +113,8 @@ using namespace flutter;
     result(nil);
   } else if ([method isEqualToString:@"Clipboard.hasStrings"]) {
     result([self clipboardHasStrings]);
+  } else if ([method isEqualToString:@"LiveText.isLiveTextInputAvailable"]) {
+    result(@([self isLiveTextInputAvailable]));
   } else {
     result(FlutterMethodNotImplemented);
   }
@@ -107,19 +134,17 @@ using namespace flutter;
     return;
   }
 
-  if (@available(iOS 10, *)) {
-    if ([@"HapticFeedbackType.lightImpact" isEqualToString:feedbackType]) {
-      [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] autorelease]
-          impactOccurred];
-    } else if ([@"HapticFeedbackType.mediumImpact" isEqualToString:feedbackType]) {
-      [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium] autorelease]
-          impactOccurred];
-    } else if ([@"HapticFeedbackType.heavyImpact" isEqualToString:feedbackType]) {
-      [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy] autorelease]
-          impactOccurred];
-    } else if ([@"HapticFeedbackType.selectionClick" isEqualToString:feedbackType]) {
-      [[[[UISelectionFeedbackGenerator alloc] init] autorelease] selectionChanged];
-    }
+  if ([@"HapticFeedbackType.lightImpact" isEqualToString:feedbackType]) {
+    [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] autorelease]
+        impactOccurred];
+  } else if ([@"HapticFeedbackType.mediumImpact" isEqualToString:feedbackType]) {
+    [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium] autorelease]
+        impactOccurred];
+  } else if ([@"HapticFeedbackType.heavyImpact" isEqualToString:feedbackType]) {
+    [[[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy] autorelease]
+        impactOccurred];
+  } else if ([@"HapticFeedbackType.selectionClick" isEqualToString:feedbackType]) {
+    [[[[UISelectionFeedbackGenerator alloc] init] autorelease] selectionChanged];
   }
 }
 
@@ -156,14 +181,7 @@ using namespace flutter;
 }
 
 - (void)setSystemChromeEnabledSystemUIOverlays:(NSArray*)overlays {
-  // Checks if the top status bar should be visible. This platform ignores all
-  // other overlays
-
-  // We opt out of view controller based status bar visibility since we want
-  // to be able to modify this on the fly. The key used is
-  // UIViewControllerBasedStatusBarAppearance
-  [UIApplication sharedApplication].statusBarHidden =
-      ![overlays containsObject:@"SystemUiOverlay.top"];
+  BOOL statusBarShouldBeHidden = ![overlays containsObject:@"SystemUiOverlay.top"];
   if ([overlays containsObject:@"SystemUiOverlay.bottom"]) {
     [[NSNotificationCenter defaultCenter]
         postNotificationName:FlutterViewControllerShowHomeIndicator
@@ -173,26 +191,36 @@ using namespace flutter;
         postNotificationName:FlutterViewControllerHideHomeIndicator
                       object:nil];
   }
+  if (self.enableViewControllerBasedStatusBarAppearance) {
+    [_engine.get() viewController].prefersStatusBarHidden = statusBarShouldBeHidden;
+  } else {
+    // Checks if the top status bar should be visible. This platform ignores all
+    // other overlays
+
+    // We opt out of view controller based status bar visibility since we want
+    // to be able to modify this on the fly. The key used is
+    // UIViewControllerBasedStatusBarAppearance.
+    [UIApplication sharedApplication].statusBarHidden = statusBarShouldBeHidden;
+  }
 }
 
 - (void)setSystemChromeEnabledSystemUIMode:(NSString*)mode {
-  // Checks if the top status bar should be visible, reflected by edge to edge setting. This
-  // platform ignores all other system ui modes.
-
-  // We opt out of view controller based status bar visibility since we want
-  // to be able to modify this on the fly. The key used is
-  // UIViewControllerBasedStatusBarAppearance
-  [UIApplication sharedApplication].statusBarHidden =
-      ![mode isEqualToString:@"SystemUiMode.edgeToEdge"];
-  if ([mode isEqualToString:@"SystemUiMode.edgeToEdge"]) {
-    [[NSNotificationCenter defaultCenter]
-        postNotificationName:FlutterViewControllerShowHomeIndicator
-                      object:nil];
+  BOOL edgeToEdge = [mode isEqualToString:@"SystemUiMode.edgeToEdge"];
+  if (self.enableViewControllerBasedStatusBarAppearance) {
+    [_engine.get() viewController].prefersStatusBarHidden = !edgeToEdge;
   } else {
-    [[NSNotificationCenter defaultCenter]
-        postNotificationName:FlutterViewControllerHideHomeIndicator
-                      object:nil];
+    // Checks if the top status bar should be visible, reflected by edge to edge setting. This
+    // platform ignores all other system ui modes.
+
+    // We opt out of view controller based status bar visibility since we want
+    // to be able to modify this on the fly. The key used is
+    // UIViewControllerBasedStatusBarAppearance.
+    [UIApplication sharedApplication].statusBarHidden = !edgeToEdge;
   }
+  [[NSNotificationCenter defaultCenter]
+      postNotificationName:edgeToEdge ? FlutterViewControllerShowHomeIndicator
+                                      : FlutterViewControllerHideHomeIndicator
+                    object:nil];
 }
 
 - (void)restoreSystemChromeSystemUIOverlays {
@@ -218,19 +246,15 @@ using namespace flutter;
     return;
   }
 
-  NSNumber* infoValue = [[NSBundle mainBundle]
-      objectForInfoDictionaryKey:@"UIViewControllerBasedStatusBarAppearance"];
-  Boolean delegateToViewController = (infoValue == nil || [infoValue boolValue]);
-
-  if (delegateToViewController) {
-    // This notification is respected by the iOS embedder
+  if (self.enableViewControllerBasedStatusBarAppearance) {
+    // This notification is respected by the iOS embedder.
     [[NSNotificationCenter defaultCenter]
         postNotificationName:@(kOverlayStyleUpdateNotificationName)
                       object:nil
                     userInfo:@{@(kOverlayStyleUpdateNotificationKey) : @(statusBarStyle)}];
   } else {
     // Note: -[UIApplication setStatusBarStyle] is deprecated in iOS9
-    // in favor of delegating to the view controller
+    // in favor of delegating to the view controller.
     [[UIApplication sharedApplication] setStatusBarStyle:statusBarStyle];
   }
 }
@@ -276,15 +300,22 @@ using namespace flutter;
 }
 
 - (NSDictionary*)clipboardHasStrings {
-  bool hasStrings = false;
-  UIPasteboard* pasteboard = [UIPasteboard generalPasteboard];
-  if (@available(iOS 10, *)) {
-    hasStrings = pasteboard.hasStrings;
-  } else {
-    NSString* stringInPasteboard = pasteboard.string;
-    hasStrings = stringInPasteboard != nil;
-  }
-  return @{@"value" : @(hasStrings)};
+  return @{@"value" : @([UIPasteboard generalPasteboard].hasStrings)};
 }
 
+- (BOOL)isLiveTextInputAvailable {
+  return [[self textField] canPerformAction:@selector(captureTextFromCamera:) withSender:nil];
+}
+
+- (UITextField*)textField {
+  if (_textField == nil) {
+    _textField = [[UITextField alloc] init];
+  }
+  return _textField;
+}
+
+- (void)dealloc {
+  [_textField release];
+  [super dealloc];
+}
 @end

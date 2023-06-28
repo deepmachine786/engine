@@ -5,6 +5,8 @@
 #include "flutter/testing/test_gl_surface.h"
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <EGL/eglplatform.h>
 #include <GLES2/gl2.h>
 
 #include <sstream>
@@ -15,6 +17,8 @@
 #include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkColorType.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/GrBackendSurface.h"
+#include "third_party/skia/include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "third_party/skia/include/gpu/gl/GrGLAssembleInterface.h"
 
 namespace flutter {
@@ -81,12 +85,54 @@ static std::string GetEGLError() {
   return stream.str();
 }
 
+static bool HasExtension(const char* extensions, const char* name) {
+  const char* r = strstr(extensions, name);
+  auto len = strlen(name);
+  // check that the extension name is terminated by space or null terminator
+  return r != nullptr && (r[len] == ' ' || r[len] == 0);
+}
+
+static void CheckSwanglekExtensions() {
+  const char* extensions = ::eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
+  FML_CHECK(HasExtension(extensions, "EGL_EXT_platform_base")) << extensions;
+  FML_CHECK(HasExtension(extensions, "EGL_ANGLE_platform_angle_vulkan"))
+      << extensions;
+  FML_CHECK(HasExtension(extensions,
+                         "EGL_ANGLE_platform_angle_device_type_swiftshader"))
+      << extensions;
+}
+
+static EGLDisplay CreateSwangleDisplay() {
+  CheckSwanglekExtensions();
+
+  PFNEGLGETPLATFORMDISPLAYEXTPROC egl_get_platform_display_EXT =
+      reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
+          eglGetProcAddress("eglGetPlatformDisplayEXT"));
+  FML_CHECK(egl_get_platform_display_EXT)
+      << "eglGetPlatformDisplayEXT not available.";
+
+  const EGLint display_config[] = {
+      EGL_PLATFORM_ANGLE_TYPE_ANGLE,
+      EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE,
+      EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
+      EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE,
+      EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+      EGL_PLATFORM_VULKAN_DISPLAY_MODE_HEADLESS_ANGLE,
+      EGL_NONE,
+  };
+
+  return egl_get_platform_display_EXT(
+      EGL_PLATFORM_ANGLE_ANGLE,
+      reinterpret_cast<EGLNativeDisplayType*>(EGL_DEFAULT_DISPLAY),
+      display_config);
+}
+
 TestGLSurface::TestGLSurface(SkISize surface_size)
     : surface_size_(surface_size) {
-  display_ = ::eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  display_ = CreateSwangleDisplay();
   FML_CHECK(display_ != EGL_NO_DISPLAY);
 
-  auto result = ::eglInitialize(display_, NULL, NULL);
+  auto result = ::eglInitialize(display_, nullptr, nullptr);
   FML_CHECK(result == EGL_TRUE) << GetEGLError();
 
   EGLConfig config = {0};
@@ -315,7 +361,7 @@ sk_sp<SkSurface> TestGLSurface::GetOnscreenSurface() {
 
   SkSurfaceProps surface_properties(0, kUnknown_SkPixelGeometry);
 
-  auto surface = SkSurface::MakeFromBackendRenderTarget(
+  auto surface = SkSurfaces::WrapBackendRenderTarget(
       GetGrContext().get(),         // context
       backend_render_target,        // backend render target
       kBottomLeft_GrSurfaceOrigin,  // surface origin

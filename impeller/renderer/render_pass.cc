@@ -6,8 +6,10 @@
 
 namespace impeller {
 
-RenderPass::RenderPass(RenderTarget target)
-    : render_target_(std::move(target)),
+RenderPass::RenderPass(std::weak_ptr<const Context> context,
+                       const RenderTarget& target)
+    : context_(std::move(context)),
+      render_target_(target),
       transients_buffer_(HostBuffer::Create()) {}
 
 RenderPass::~RenderPass() = default;
@@ -47,7 +49,7 @@ bool RenderPass::AddCommand(Command command) {
     }
   }
 
-  if (command.index_count == 0u) {
+  if (command.vertex_count == 0u) {
     // Essentially a no-op. Don't record the command but this is not necessary
     // an error either.
     return true;
@@ -61,6 +63,19 @@ bool RenderPass::AddCommand(Command command) {
 
   commands_.emplace_back(std::move(command));
   return true;
+}
+
+bool RenderPass::EncodeCommands() const {
+  auto context = context_.lock();
+  // The context could have been collected in the meantime.
+  if (!context) {
+    return false;
+  }
+  return OnEncodeCommands(*context);
+}
+
+const std::weak_ptr<const Context>& RenderPass::GetContext() const {
+  return context_;
 }
 
 }  // namespace impeller

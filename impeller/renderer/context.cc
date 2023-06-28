@@ -10,4 +10,8 @@ Context::~Context() = default;
 
 Context::Context() = default;
 
+bool Context::UpdateOffscreenLayerPixelFormat(PixelFormat format) {
+  return false;
+}
+
 }  // namespace impeller

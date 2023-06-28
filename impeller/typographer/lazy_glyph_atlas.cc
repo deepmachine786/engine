@@ -6,6 +6,9 @@
 
 #include "impeller/base/validation.h"
 #include "impeller/typographer/text_render_context.h"
+#include "lazy_glyph_atlas.h"
+
+#include <utility>
 
 namespace impeller {
 
@@ -13,15 +16,24 @@ LazyGlyphAtlas::LazyGlyphAtlas() = default;
 
 LazyGlyphAtlas::~LazyGlyphAtlas() = default;
 
-void LazyGlyphAtlas::AddTextFrame(TextFrame frame) {
-  FML_DCHECK(!atlas_);
-  frames_.emplace_back(std::move(frame));
+void LazyGlyphAtlas::AddTextFrame(const TextFrame& frame) {
+  FML_DCHECK(atlas_map_.empty());
+  if (frame.GetAtlasType() == GlyphAtlas::Type::kAlphaBitmap) {
+    alpha_frames_.emplace_back(frame);
+  } else {
+    color_frames_.emplace_back(frame);
+  }
 }
 
 std::shared_ptr<GlyphAtlas> LazyGlyphAtlas::CreateOrGetGlyphAtlas(
+    GlyphAtlas::Type type,
+    std::shared_ptr<GlyphAtlasContext> atlas_context,
     std::shared_ptr<Context> context) const {
-  if (atlas_) {
-    return atlas_;
+  {
+    auto atlas_it = atlas_map_.find(type);
+    if (atlas_it != atlas_map_.end()) {
+      return atlas_it->second;
+    }
   }
 
   auto text_context = TextRenderContext::Create(std::move(context));
@@ -29,21 +41,24 @@ std::shared_ptr<GlyphAtlas> LazyGlyphAtlas::CreateOrGetGlyphAtlas(
     return nullptr;
   }
   size_t i = 0;
+  auto frames =
+      type == GlyphAtlas::Type::kAlphaBitmap ? alpha_frames_ : color_frames_;
   TextRenderContext::FrameIterator iterator = [&]() -> const TextFrame* {
-    if (i >= frames_.size()) {
+    if (i >= frames.size()) {
       return nullptr;
     }
-    const auto& result = frames_[i];
+    const auto& result = frames[i];
     i++;
     return &result;
   };
-  auto atlas = text_context->CreateGlyphAtlas(iterator);
+  auto atlas =
+      text_context->CreateGlyphAtlas(type, std::move(atlas_context), iterator);
   if (!atlas || !atlas->IsValid()) {
     VALIDATION_LOG << "Could not create valid atlas.";
     return nullptr;
   }
-  atlas_ = std::move(atlas);
-  return atlas_;
+  atlas_map_[type] = atlas;
+  return atlas;
 }
 
 }  // namespace impeller

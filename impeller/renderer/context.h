@@ -8,6 +8,8 @@
 #include <string>
 
 #include "flutter/fml/macros.h"
+#include "impeller/core/formats.h"
+#include "impeller/renderer/capabilities.h"
 
 namespace impeller {
 
@@ -21,19 +23,16 @@ class Context {
  public:
   virtual ~Context();
 
+  virtual std::string DescribeGpuModel() const = 0;
+
   virtual bool IsValid() const = 0;
 
-  //----------------------------------------------------------------------------
-  /// @return     An allocator suitable for allocations that persist between
-  ///             frames.
-  ///
-  virtual std::shared_ptr<Allocator> GetPermanentsAllocator() const = 0;
+  virtual const std::shared_ptr<const Capabilities>& GetCapabilities()
+      const = 0;
 
-  //----------------------------------------------------------------------------
-  /// @return     An allocator suitable for allocations that used only for one
-  ///             frame or render pass.
-  ///
-  virtual std::shared_ptr<Allocator> GetTransientsAllocator() const = 0;
+  virtual bool UpdateOffscreenLayerPixelFormat(PixelFormat format);
+
+  virtual std::shared_ptr<Allocator> GetResourceAllocator() const = 0;
 
   virtual std::shared_ptr<ShaderLibrary> GetShaderLibrary() const = 0;
 
@@ -41,10 +40,11 @@ class Context {
 
   virtual std::shared_ptr<PipelineLibrary> GetPipelineLibrary() const = 0;
 
-  virtual std::shared_ptr<CommandBuffer> CreateRenderCommandBuffer() const = 0;
+  virtual std::shared_ptr<CommandBuffer> CreateCommandBuffer() const = 0;
 
-  virtual std::shared_ptr<CommandBuffer> CreateTransferCommandBuffer()
-      const = 0;
+  /// @brief Force all pending async work to finish by deleting any owned
+  /// concurrent message loops.
+  virtual void Shutdown() = 0;
 
  protected:
   Context();

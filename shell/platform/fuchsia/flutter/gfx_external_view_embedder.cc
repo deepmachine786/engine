@@ -10,6 +10,7 @@
 
 #include <algorithm>  // For std::clamp
 
+#include "flutter/fml/logging.h"
 #include "flutter/fml/trace_event.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -25,28 +26,28 @@ ViewMutators ParseMutatorStack(const flutter::MutatorsStack& mutators_stack) {
   for (auto i = mutators_stack.Begin(); i != mutators_stack.End(); ++i) {
     const auto& mutator = *i;
     switch (mutator->GetType()) {
-      case flutter::MutatorType::opacity: {
+      case flutter::MutatorType::kOpacity: {
         mutators.opacity *= std::clamp(mutator->GetAlphaFloat(), 0.f, 1.f);
       } break;
-      case flutter::MutatorType::transform: {
+      case flutter::MutatorType::kTransform: {
         total_transform.preConcat(mutator->GetMatrix());
         transform_accumulator.preConcat(mutator->GetMatrix());
       } break;
-      case flutter::MutatorType::clip_rect: {
+      case flutter::MutatorType::kClipRect: {
         mutators.clips.emplace_back(TransformedClip{
             .transform = transform_accumulator,
             .rect = mutator->GetRect(),
         });
         transform_accumulator = SkMatrix::I();
       } break;
-      case flutter::MutatorType::clip_rrect: {
+      case flutter::MutatorType::kClipRRect: {
         mutators.clips.emplace_back(TransformedClip{
             .transform = transform_accumulator,
             .rect = mutator->GetRRect().getBounds(),
         });
         transform_accumulator = SkMatrix::I();
       } break;
-      case flutter::MutatorType::clip_path: {
+      case flutter::MutatorType::kClipPath: {
         mutators.clips.emplace_back(TransformedClip{
             .transform = transform_accumulator,
             .rect = mutator->GetPath().getBounds(),
@@ -139,7 +140,7 @@ GfxExternalViewEmbedder::GfxExternalViewEmbedder(
 
 GfxExternalViewEmbedder::~GfxExternalViewEmbedder() = default;
 
-SkCanvas* GfxExternalViewEmbedder::GetRootCanvas() {
+flutter::DlCanvas* GfxExternalViewEmbedder::GetRootCanvas() {
   auto found = frame_layers_.find(kRootLayerId);
   if (found == frame_layers_.end()) {
     FML_LOG(WARNING)
@@ -152,29 +153,20 @@ SkCanvas* GfxExternalViewEmbedder::GetRootCanvas() {
   return found->second.canvas_spy->GetSpyingCanvas();
 }
 
-std::vector<SkCanvas*> GfxExternalViewEmbedder::GetCurrentCanvases() {
-  std::vector<SkCanvas*> canvases;
-  for (const auto& layer : frame_layers_) {
-    // This method (for legacy reasons) expects non-root current canvases.
-    if (layer.first.has_value()) {
-      canvases.push_back(layer.second.canvas_spy->GetSpyingCanvas());
-    }
-  }
-  return canvases;
-}
-
 void GfxExternalViewEmbedder::PrerollCompositeEmbeddedView(
-    int view_id,
+    int64_t view_id,
     std::unique_ptr<flutter::EmbeddedViewParams> params) {
   zx_handle_t handle = static_cast<zx_handle_t>(view_id);
   FML_CHECK(frame_layers_.count(handle) == 0);
 
-  frame_layers_.emplace(std::make_pair(EmbedderLayerId{handle},
-                                       EmbedderLayer(frame_size_, *params)));
+  frame_layers_.emplace(std::make_pair(
+      EmbedderLayerId{handle},
+      EmbedderLayer(frame_size_, *params, flutter::RTreeFactory())));
   frame_composition_order_.push_back(handle);
 }
 
-SkCanvas* GfxExternalViewEmbedder::CompositeEmbeddedView(int view_id) {
+flutter::DlCanvas* GfxExternalViewEmbedder::CompositeEmbeddedView(
+    int64_t view_id) {
   zx_handle_t handle = static_cast<zx_handle_t>(view_id);
   auto found = frame_layers_.find(handle);
   FML_CHECK(found != frame_layers_.end());
@@ -200,8 +192,9 @@ void GfxExternalViewEmbedder::BeginFrame(
   frame_dpr_ = device_pixel_ratio;
 
   // Create the root layer.
-  frame_layers_.emplace(
-      std::make_pair(kRootLayerId, EmbedderLayer(frame_size, std::nullopt)));
+  frame_layers_.emplace(std::make_pair(
+      kRootLayerId,
+      EmbedderLayer(frame_size, std::nullopt, flutter::RTreeFactory())));
   frame_composition_order_.push_back(kRootLayerId);
 
   // Set up the input interceptor at the top of the scene, if applicable.
@@ -238,6 +231,7 @@ void GfxExternalViewEmbedder::EndFrame(
 
 void GfxExternalViewEmbedder::SubmitFrame(
     GrDirectContext* context,
+    const std::shared_ptr<impeller::AiksContext>& aiks_context,
     std::unique_ptr<flutter::SurfaceFrame> frame) {
   TRACE_EVENT0("flutter", "GfxExternalViewEmbedder::SubmitFrame");
   std::vector<std::unique_ptr<SurfaceProducerSurface>> frame_surfaces;
@@ -268,6 +262,19 @@ void GfxExternalViewEmbedder::SubmitFrame(
       frame_surface_indices.emplace(
           std::make_pair(layer.first, frame_surfaces.size()));
       frame_surfaces.emplace_back(std::move(surface));
+    }
+  }
+
+  // Finish recording SkPictures.
+  {
+    TRACE_EVENT0("flutter", "FinishRecordingPictures");
+
+    for (const auto& surface_index : frame_surface_indices) {
+      const auto& layer = frame_layers_.find(surface_index.first);
+      FML_CHECK(layer != frame_layers_.end());
+      layer->second.picture =
+          layer->second.recorder->finishRecordingAsPicture();
+      FML_CHECK(layer->second.picture != nullptr);
     }
   }
 
@@ -305,8 +312,29 @@ void GfxExternalViewEmbedder::SubmitFrame(
         const float view_elevation =
             kScenicZElevationBetweenLayers * scenic_layer_index +
             embedded_views_height;
-        FML_CHECK(view_mutators.total_transform ==
-                  view_params.transformMatrix());
+
+        // Verify that we're unpacking the mutators' transform matrix correctly
+        // on debug builds Use built-in get method for SkMatrix to get values
+        // See:
+        // https://source.corp.google.com/piper///depot/google3/third_party/skia/HEAD/include/core/SkMatrix.h;l=391
+#ifdef NDEBUG
+        for (int index = 0; index < 9; index++) {
+          const SkScalar mutators_transform_value =
+              view_mutators.total_transform.get(index);
+          const SkScalar params_transform_value =
+              view_params.transformMatrix().get(index);
+          if (!SkScalarNearlyEqual(mutators_transform_value,
+                                   params_transform_value, 0.0005f)) {
+            FML_LOG(FATAL)
+                << "Assertion failed: view_mutators.total_transform[" << index
+                << "] (" << mutators_transform_value
+                << ") != view_params.transformMatrix()[" << index << "] ("
+                << params_transform_value
+                << "). This likely means there is a bug with the "
+                << "logic for parsing embedded views' transform matrices.";
+          }
+        }
+#endif
 
         // Set clips for the platform view.
         if (view_mutators.clips != view_holder.mutators.clips) {
@@ -437,10 +465,18 @@ void GfxExternalViewEmbedder::SubmitFrame(
         FML_CHECK(scenic_layer_index <= scenic_layers_.size());
         if (scenic_layer_index == scenic_layers_.size()) {
           ScenicLayer new_layer{
-              .shape_node = scenic::ShapeNode(session_->get()),
-              .material = scenic::Material(session_->get()),
+              .layer_node = scenic::EntityNode(session_->get()),
+              .image =
+                  ScenicImage{
+                      .shape_node = scenic::ShapeNode(session_->get()),
+                      .material = scenic::Material(session_->get()),
+                  },
+              // We'll set hit regions later.
+              .hit_regions = {},
           };
-          new_layer.shape_node.SetMaterial(new_layer.material);
+          new_layer.layer_node.SetLabel("Flutter::Layer");
+          new_layer.layer_node.AddChild(new_layer.image.shape_node);
+          new_layer.image.shape_node.SetMaterial(new_layer.image.material);
           scenic_layers_.emplace_back(std::move(new_layer));
         }
 
@@ -491,25 +527,50 @@ void GfxExternalViewEmbedder::SubmitFrame(
             embedded_views_height;
         auto& scenic_layer = scenic_layers_[scenic_layer_index];
         auto& scenic_rect = found_rects->second[rect_index];
-        scenic_layer.shape_node.SetLabel("Flutter::Layer");
-        scenic_layer.shape_node.SetShape(scenic_rect);
-        scenic_layer.shape_node.SetTranslation(
+        auto& image = scenic_layer.image;
+        image.shape_node.SetLabel("Flutter::Layer::Image");
+        image.shape_node.SetShape(scenic_rect);
+        image.shape_node.SetTranslation(
             layer->second.surface_size.width() * 0.5f,
             layer->second.surface_size.height() * 0.5f, -layer_elevation);
-        scenic_layer.material.SetColor(SK_AlphaOPAQUE, SK_AlphaOPAQUE,
-                                       SK_AlphaOPAQUE, layer_opacity);
-        scenic_layer.material.SetTexture(surface_for_layer->GetImageId());
+        image.material.SetColor(SK_AlphaOPAQUE, SK_AlphaOPAQUE, SK_AlphaOPAQUE,
+                                layer_opacity);
+        image.material.SetTexture(surface_for_layer->GetImageId());
 
-        // Only the first (i.e. the bottom-most) layer should receive input.
-        // TODO: Workaround for invisible overlays stealing input. Remove when
-        // the underlying bug is fixed.
-        const fuchsia::ui::gfx::HitTestBehavior layer_hit_test_behavior =
-            first_layer ? fuchsia::ui::gfx::HitTestBehavior::kDefault
-                        : fuchsia::ui::gfx::HitTestBehavior::kSuppress;
-        scenic_layer.shape_node.SetHitTestBehavior(layer_hit_test_behavior);
+        // We'll set hit regions expliclty on a separate ShapeNode, so the image
+        // itself should be unhittable and semantically invisible.
+        image.shape_node.SetHitTestBehavior(
+            fuchsia::ui::gfx::HitTestBehavior::kSuppress);
+        image.shape_node.SetSemanticVisibility(false);
 
         // Attach the ScenicLayer to the main scene graph.
-        layer_tree_node_.AddChild(scenic_layer.shape_node);
+        layer_tree_node_.AddChild(scenic_layer.layer_node);
+
+        // Compute the set of non-overlapping set of bounding boxes for the
+        // painted content in this layer.
+        {
+          FML_CHECK(layer->second.rtree);
+          std::list<SkRect> intersection_rects =
+              layer->second.rtree->searchNonOverlappingDrawnRects(
+                  SkRect::Make(layer->second.surface_size));
+
+          // SkRect joined_rect = SkRect::MakeEmpty();
+          for (const SkRect& rect : intersection_rects) {
+            auto paint_bounds =
+                scenic::Rectangle(session_->get(), rect.width(), rect.height());
+            auto hit_region = scenic::ShapeNode(session_->get());
+            hit_region.SetLabel("Flutter::Layer::HitRegion");
+            hit_region.SetShape(paint_bounds);
+            hit_region.SetTranslation(rect.centerX(), rect.centerY(),
+                                      -layer_elevation);
+            hit_region.SetHitTestBehavior(
+                fuchsia::ui::gfx::HitTestBehavior::kDefault);
+            hit_region.SetSemanticVisibility(true);
+
+            scenic_layer.layer_node.AddChild(hit_region);
+            scenic_layer.hit_regions.push_back(std::move(hit_region));
+          }
+        }
       }
 
       // Reset for the next pass:
@@ -527,7 +588,11 @@ void GfxExternalViewEmbedder::SubmitFrame(
     session_->Present();
   }
 
-  // Render the recorded SkPictures into the surfaces.
+  // Flush pending skia operations.
+  // NOTE: This operation MUST occur AFTER the `Present() ` call above. We
+  // pipeline the Skia rendering work with scenic IPC, and scenic will delay
+  // internally until Skia is finished. So, doing this work before calling
+  // `Present()` would adversely affect performance.
   {
     TRACE_EVENT0("flutter", "RasterizeSurfaces");
 
@@ -548,13 +613,10 @@ void GfxExternalViewEmbedder::SubmitFrame(
 
       const auto& layer = frame_layers_.find(surface_index.first);
       FML_CHECK(layer != frame_layers_.end());
-      sk_sp<SkPicture> picture =
-          layer->second.recorder->finishRecordingAsPicture();
-      FML_CHECK(picture != nullptr);
 
       canvas->setMatrix(SkMatrix::I());
       canvas->clear(SK_ColorTRANSPARENT);
-      canvas->drawPicture(picture);
+      canvas->drawPicture(layer->second.picture);
       canvas->flush();
     }
   }
@@ -636,7 +698,16 @@ void GfxExternalViewEmbedder::Reset() {
 
   // Clear images on all layers so they aren't cached unnecessarily.
   for (auto& layer : scenic_layers_) {
-    layer.material.SetTexture(0);
+    layer.image.material.SetTexture(0);
+
+    // Detach hit regions; otherwise, they may persist across frames
+    // incorrectly.
+    for (auto& hit_region : layer.hit_regions) {
+      hit_region.Detach();
+    }
+
+    // Remove cached hit regions so that we don't recreate stale ones.
+    layer.hit_regions.clear();
   }
 }
 

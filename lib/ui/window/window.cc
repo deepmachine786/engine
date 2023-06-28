@@ -4,6 +4,8 @@
 
 #include "flutter/lib/ui/window/window.h"
 
+#include <utility>
+
 #include "third_party/tonic/converter/dart_converter.h"
 #include "third_party/tonic/dart_args.h"
 #include "third_party/tonic/logging/dart_invoke.h"
@@ -12,29 +14,12 @@
 namespace flutter {
 
 Window::Window(int64_t window_id, ViewportMetrics metrics)
-    : window_id_(window_id), viewport_metrics_(metrics) {
+    : window_id_(window_id), viewport_metrics_(std::move(metrics)) {
   library_.Set(tonic::DartState::Current(),
                Dart_LookupLibrary(tonic::ToDart("dart:ui")));
 }
 
 Window::~Window() {}
-
-void Window::DispatchPointerDataPacket(const PointerDataPacket& packet) {
-  std::shared_ptr<tonic::DartState> dart_state = library_.dart_state().lock();
-  if (!dart_state) {
-    return;
-  }
-  tonic::DartState::Scope scope(dart_state);
-
-  const std::vector<uint8_t>& buffer = packet.data();
-  Dart_Handle data_handle =
-      tonic::DartByteData::Create(buffer.data(), buffer.size());
-  if (Dart_IsError(data_handle)) {
-    return;
-  }
-  tonic::CheckAndHandleError(tonic::DartInvokeField(
-      library_.value(), "_dispatchPointerDataPacket", {data_handle}));
-}
 
 void Window::UpdateWindowMetrics(const ViewportMetrics& metrics) {
   viewport_metrics_ = metrics;
@@ -67,6 +52,7 @@ void Window::UpdateWindowMetrics(const ViewportMetrics& metrics) {
           tonic::ToDart(metrics.physical_display_features_bounds),
           tonic::ToDart(metrics.physical_display_features_type),
           tonic::ToDart(metrics.physical_display_features_state),
+          tonic::ToDart(metrics.display_id),
       }));
 }
 

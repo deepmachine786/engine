@@ -4,36 +4,74 @@
 
 #pragma once
 
-#include "impeller/entity/contents/filters/filter_contents.h"
+#include "impeller/entity/contents/filters/color_filter_contents.h"
 #include "impeller/entity/contents/filters/inputs/filter_input.h"
 
 namespace impeller {
 
-class BlendFilterContents : public FilterContents {
+class BlendFilterContents : public ColorFilterContents {
  public:
   using AdvancedBlendProc =
-      std::function<bool(const FilterInput::Vector& inputs,
-                         const ContentContext& renderer,
-                         const Entity& entity,
-                         RenderPass& pass,
-                         const Rect& coverage)>;
+      std::function<std::optional<Entity>(const FilterInput::Vector& inputs,
+                                          const ContentContext& renderer,
+                                          const Entity& entity,
+                                          const Rect& coverage,
+                                          BlendMode blend_mode,
+                                          std::optional<Color> foreground_color,
+                                          bool absorb_opacity,
+                                          std::optional<Scalar> alpha)>;
 
   BlendFilterContents();
 
   ~BlendFilterContents() override;
 
-  void SetBlendMode(Entity::BlendMode blend_mode);
+  void SetBlendMode(BlendMode blend_mode);
+
+  /// @brief  Sets a source color which is blended after all of the inputs have
+  ///         been blended.
+  void SetForegroundColor(std::optional<Color> color);
 
  private:
   // |FilterContents|
-  bool RenderFilter(const FilterInput::Vector& inputs,
-                    const ContentContext& renderer,
-                    const Entity& entity,
-                    RenderPass& pass,
-                    const Rect& coverage) const override;
+  std::optional<Entity> RenderFilter(
+      const FilterInput::Vector& inputs,
+      const ContentContext& renderer,
+      const Entity& entity,
+      const Matrix& effect_transform,
+      const Rect& coverage,
+      const std::optional<Rect>& coverage_hint) const override;
 
-  Entity::BlendMode blend_mode_;
+  /// @brief Optimized advanced blend that avoids a second subpass when there is
+  ///        only a single input and a foreground color.
+  ///
+  /// These contents cannot absorb opacity.
+  std::optional<Entity> CreateForegroundAdvancedBlend(
+      const std::shared_ptr<FilterInput>& input,
+      const ContentContext& renderer,
+      const Entity& entity,
+      const Rect& coverage,
+      Color foreground_color,
+      BlendMode blend_mode,
+      std::optional<Scalar> alpha,
+      bool absorb_opacity) const;
+
+  /// @brief Optimized porter-duff blend that avoids a second subpass when there
+  ///        is only a single input and a foreground color.
+  ///
+  /// These contents cannot absorb opacity.
+  std::optional<Entity> CreateForegroundPorterDuffBlend(
+      const std::shared_ptr<FilterInput>& input,
+      const ContentContext& renderer,
+      const Entity& entity,
+      const Rect& coverage,
+      Color foreground_color,
+      BlendMode blend_mode,
+      std::optional<Scalar> alpha,
+      bool absorb_opacity) const;
+
+  BlendMode blend_mode_ = BlendMode::kSourceOver;
   AdvancedBlendProc advanced_blend_proc_;
+  std::optional<Color> foreground_color_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(BlendFilterContents);
 };

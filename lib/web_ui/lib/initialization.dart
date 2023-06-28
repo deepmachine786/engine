@@ -4,6 +4,8 @@
 
 // TODO(yjbanov): rename this file to web_only_api.dart.
 //                https://github.com/flutter/flutter/issues/100394
+//                Rather than extending this file with new APIs, we
+//                should instead use js interop.
 
 // This file contains extra web-only API that non-web engines do not have.
 //
@@ -64,8 +66,8 @@ Future<void> webOnlyWarmupEngine({
 }) async {
   // Create the object that knows how to bootstrap an app from JS and Dart.
   final engine.AppBootstrap bootstrap = engine.AppBootstrap(
-    initEngine: () async {
-      await engine.initializeEngineServices();
+    initializeEngine: ([engine.JsFlutterConfiguration? configuration]) async {
+      await engine.initializeEngineServices(jsConfiguration: configuration);
     }, runApp: () async {
       if (registerPlugins != null) {
         registerPlugins();
@@ -77,22 +79,15 @@ Future<void> webOnlyWarmupEngine({
     },
   );
 
-  // Should the app "autoStart"?
-  bool autoStart = true;
-  try {
-    autoStart = engine.didCreateEngineInitializer == null;
-  } catch (e) {
-    // Uncaught (in promise) TypeError: Cannot read properties of undefined (reading 'loader')
-    autoStart = true;
-  }
-  if (autoStart) {
+  final engine.FlutterLoader? loader = engine.flutter?.loader;
+  if (loader == null || loader.isAutoStart) {
     // The user does not want control of the app, bootstrap immediately.
-    print('Flutter Web Bootstrap: Auto');
+    engine.domWindow.console.debug('Flutter Web Bootstrap: Auto.');
     await bootstrap.autoStart();
   } else {
     // Yield control of the bootstrap procedure to the user.
-    print('Flutter Web Bootstrap: Programmatic');
-    engine.didCreateEngineInitializer!(bootstrap.prepareEngineInitializer());
+    engine.domWindow.console.debug('Flutter Web Bootstrap: Programmatic.');
+    loader.didCreateEngineInitializer(bootstrap.prepareEngineInitializer());
   }
 }
 
@@ -110,16 +105,24 @@ set debugEmulateFlutterTesterEnvironment(bool value) {
     engine.window.webOnlyDebugPhysicalSizeOverride =
         logicalSize * window.devicePixelRatio;
   }
+  engine.debugDisableFontFallbacks = value;
 }
 
 bool _debugEmulateFlutterTesterEnvironment = false;
 
 /// Provides the asset manager.
-// TODO(yjbanov): this function should not return a private type. Instead, we
-//                should create a public interface for the returned value that's
-//                implemented by the engine.
-//                https://github.com/flutter/flutter/issues/100394
-engine.AssetManager get webOnlyAssetManager => engine.assetManager;
+// TODO(mdebbar): Deprecate this and remove it.
+// https://github.com/flutter/flutter/issues/127395
+ui_web.AssetManager get webOnlyAssetManager {
+  assert(() {
+    engine.printWarning(
+      'The webOnlyAssetManager getter is deprecated and will be removed in a '
+      'future release. Please use `assetManager` from `dart:ui_web` instead.',
+    );
+    return true;
+  }());
+  return ui_web.assetManager;
+}
 
 /// Sets the handler that forwards platform messages to web plugins.
 ///
@@ -129,19 +132,15 @@ void webOnlySetPluginHandler(Future<void> Function(String, ByteData?, PlatformMe
   engine.pluginMessageCallHandler = handler;
 }
 
-/// A function which takes a unique `id` and creates an HTML element.
-typedef PlatformViewFactory = html.Element Function(int viewId);
-
-/// A registry for factories that create platform views.
-class PlatformViewRegistry {
-  /// Register [viewTypeId] as being creating by the given [factory].
-  bool registerViewFactory(String viewTypeId, PlatformViewFactory viewFactory,
-      {bool isVisible = true}) {
-    // TODO(web): Deprecate this once there's another way of calling `registerFactory` (js interop?)
-    return engine.platformViewManager
-        .registerFactory(viewTypeId, viewFactory, isVisible: isVisible);
-  }
+// TODO(mdebbar): Deprecate this and remove it.
+// https://github.com/flutter/flutter/issues/127395
+ui_web.PlatformViewRegistry get platformViewRegistry {
+  assert(() {
+    engine.printWarning(
+      'The platformViewRegistry getter is deprecated and will be removed in a '
+      'future release. Please import it from `dart:ui_web` instead.',
+    );
+    return true;
+  }());
+  return ui_web.platformViewRegistry;
 }
-
-/// The platform view registry for this app.
-final PlatformViewRegistry platformViewRegistry = PlatformViewRegistry();

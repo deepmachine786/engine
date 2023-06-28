@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 @TestOn('chrome || safari || firefox')
+library;
 
 import 'dart:async';
 
@@ -24,6 +25,5 @@ Future<void> testMain() async {
     setUpCanvasKitTest();
 
     runSemanticsTests();
-    // TODO(hterkelsen): https://github.com/flutter/flutter/issues/60040
-  }, skip: isIosSafari);
+  });
 }

@@ -7,7 +7,7 @@
 #include "flutter/fml/macros.h"
 #include "impeller/base/backend_cast.h"
 #include "impeller/renderer/backend/gles/buffer_bindings_gles.h"
-#include "impeller/renderer/backend/gles/gles_handle.h"
+#include "impeller/renderer/backend/gles/handle_gles.h"
 #include "impeller/renderer/backend/gles/reactor_gles.h"
 #include "impeller/renderer/pipeline.h"
 
@@ -15,13 +15,14 @@ namespace impeller {
 
 class PipelineLibraryGLES;
 
-class PipelineGLES final : public Pipeline,
-                           public BackendCast<PipelineGLES, Pipeline> {
+class PipelineGLES final
+    : public Pipeline<PipelineDescriptor>,
+      public BackendCast<PipelineGLES, Pipeline<PipelineDescriptor>> {
  public:
   // |Pipeline|
   ~PipelineGLES() override;
 
-  const GLESHandle& GetProgramHandle() const;
+  const HandleGLES& GetProgramHandle() const;
 
   [[nodiscard]] bool BindProgram() const;
 
@@ -36,7 +37,7 @@ class PipelineGLES final : public Pipeline,
   friend PipelineLibraryGLES;
 
   ReactorGLES::Ref reactor_;
-  GLESHandle handle_;
+  HandleGLES handle_;
   std::unique_ptr<BufferBindingsGLES> buffer_bindings_;
   bool is_valid_ = false;
 
@@ -45,7 +46,7 @@ class PipelineGLES final : public Pipeline,
 
   PipelineGLES(ReactorGLES::Ref reactor,
                std::weak_ptr<PipelineLibrary> library,
-               PipelineDescriptor desc);
+               const PipelineDescriptor& desc);
 
   FML_DISALLOW_COPY_AND_ASSIGN(PipelineGLES);
 };

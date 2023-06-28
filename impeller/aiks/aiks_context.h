@@ -24,6 +24,10 @@ class AiksContext {
 
   bool IsValid() const;
 
+  std::shared_ptr<Context> GetContext() const;
+
+  ContentContext& GetContentContext() const;
+
   bool Render(const Picture& picture, RenderTarget& render_target);
 
  private:

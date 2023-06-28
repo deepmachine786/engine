@@ -14,8 +14,6 @@
 #include "dart_project.h"
 #include "flutter_engine.h"
 #include "flutter_view.h"
-#include "plugin_registrar.h"
-#include "plugin_registry.h"
 
 namespace flutter {
 
@@ -45,6 +43,9 @@ class FlutterViewController {
 
   // Returns the view managed by this controller.
   FlutterView* view() { return view_.get(); }
+
+  // Requests new frame from the engine and repaints the view.
+  void ForceRedraw();
 
   // Allows the Flutter engine and any interested plugins an opportunity to
   // handle the given message.

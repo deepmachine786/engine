@@ -9,9 +9,9 @@
 #include <optional>
 
 #include "flutter/fml/macros.h"
+#include "impeller/core/formats.h"
+#include "impeller/core/texture_descriptor.h"
 #include "impeller/geometry/color.h"
-#include "impeller/renderer/formats.h"
-#include "impeller/renderer/texture_descriptor.h"
 
 namespace impeller {
 
@@ -21,40 +21,79 @@ constexpr PixelFormat FromMTLPixelFormat(MTLPixelFormat format) {
   switch (format) {
     case MTLPixelFormatInvalid:
       return PixelFormat::kUnknown;
-    case MTLPixelFormatR8Unorm:
-      return PixelFormat::kR8UNormInt;
     case MTLPixelFormatBGRA8Unorm:
       return PixelFormat::kB8G8R8A8UNormInt;
     case MTLPixelFormatBGRA8Unorm_sRGB:
       return PixelFormat::kB8G8R8A8UNormIntSRGB;
     case MTLPixelFormatRGBA8Unorm:
       return PixelFormat::kR8G8B8A8UNormInt;
-    case MTLPixelFormatStencil8:
-      return PixelFormat::kS8UInt;
     case MTLPixelFormatRGBA8Unorm_sRGB:
       return PixelFormat::kR8G8B8A8UNormIntSRGB;
+    case MTLPixelFormatRGBA32Float:
+      return PixelFormat::kR32G32B32A32Float;
+    case MTLPixelFormatRGBA16Float:
+      return PixelFormat::kR16G16B16A16Float;
+    case MTLPixelFormatStencil8:
+      return PixelFormat::kS8UInt;
+    case MTLPixelFormatDepth32Float_Stencil8:
+      return PixelFormat::kD32FloatS8UInt;
+    case MTLPixelFormatBGR10_XR_sRGB:
+      return PixelFormat::kB10G10R10XRSRGB;
+    case MTLPixelFormatBGR10_XR:
+      return PixelFormat::kB10G10R10XR;
+    case MTLPixelFormatBGRA10_XR:
+      return PixelFormat::kB10G10R10A10XR;
     default:
       return PixelFormat::kUnknown;
   }
   return PixelFormat::kUnknown;
 }
 
+/// Safe accessor for MTLPixelFormatBGR10_XR_sRGB.
+/// Returns PixelFormat::kUnknown if MTLPixelFormatBGR10_XR_sRGB isn't
+/// supported.
+MTLPixelFormat SafeMTLPixelFormatBGR10_XR_sRGB();
+
+/// Safe accessor for MTLPixelFormatBGR10_XR.
+/// Returns PixelFormat::kUnknown if MTLPixelFormatBGR10_XR isn't supported.
+MTLPixelFormat SafeMTLPixelFormatBGR10_XR();
+
+/// Safe accessor for MTLPixelFormatBGRA10_XR.
+/// Returns PixelFormat::kUnknown if MTLPixelFormatBGR10_XR isn't supported.
+MTLPixelFormat SafeMTLPixelFormatBGRA10_XR();
+
 constexpr MTLPixelFormat ToMTLPixelFormat(PixelFormat format) {
   switch (format) {
     case PixelFormat::kUnknown:
       return MTLPixelFormatInvalid;
+    case PixelFormat::kA8UNormInt:
+      return MTLPixelFormatA8Unorm;
     case PixelFormat::kR8UNormInt:
       return MTLPixelFormatR8Unorm;
+    case PixelFormat::kR8G8UNormInt:
+      return MTLPixelFormatRG8Unorm;
     case PixelFormat::kB8G8R8A8UNormInt:
       return MTLPixelFormatBGRA8Unorm;
     case PixelFormat::kB8G8R8A8UNormIntSRGB:
       return MTLPixelFormatBGRA8Unorm_sRGB;
     case PixelFormat::kR8G8B8A8UNormInt:
       return MTLPixelFormatRGBA8Unorm;
-    case PixelFormat::kS8UInt:
-      return MTLPixelFormatStencil8;
     case PixelFormat::kR8G8B8A8UNormIntSRGB:
       return MTLPixelFormatRGBA8Unorm_sRGB;
+    case PixelFormat::kR32G32B32A32Float:
+      return MTLPixelFormatRGBA32Float;
+    case PixelFormat::kR16G16B16A16Float:
+      return MTLPixelFormatRGBA16Float;
+    case PixelFormat::kS8UInt:
+      return MTLPixelFormatStencil8;
+    case PixelFormat::kD32FloatS8UInt:
+      return MTLPixelFormatDepth32Float_Stencil8;
+    case PixelFormat::kB10G10R10XRSRGB:
+      return SafeMTLPixelFormatBGR10_XR_sRGB();
+    case PixelFormat::kB10G10R10XR:
+      return SafeMTLPixelFormatBGR10_XR();
+    case PixelFormat::kB10G10R10A10XR:
+      return SafeMTLPixelFormatBGRA10_XR();
   }
   return MTLPixelFormatInvalid;
 };
@@ -109,6 +148,16 @@ constexpr MTLPrimitiveType ToMTLPrimitiveType(PrimitiveType type) {
       return MTLPrimitiveTypePoint;
   }
   return MTLPrimitiveTypePoint;
+}
+
+constexpr MTLTriangleFillMode ToMTLTriangleFillMode(PolygonMode mode) {
+  switch (mode) {
+    case PolygonMode::kFill:
+      return MTLTriangleFillModeFill;
+    case PolygonMode::kLine:
+      return MTLTriangleFillModeLines;
+  }
+  return MTLTriangleFillModeFill;
 }
 
 constexpr MTLIndexType ToMTLIndexType(IndexType type) {
@@ -249,6 +298,8 @@ constexpr MTLStoreAction ToMTLStoreAction(StoreAction action) {
       return MTLStoreActionStore;
     case StoreAction::kMultisampleResolve:
       return MTLStoreActionMultisampleResolve;
+    case StoreAction::kStoreAndMultisampleResolve:
+      return MTLStoreActionStoreAndMultisampleResolve;
   }
   return MTLStoreActionDontCare;
 }
@@ -261,6 +312,8 @@ constexpr StoreAction FromMTLStoreAction(MTLStoreAction action) {
       return StoreAction::kStore;
     case MTLStoreActionMultisampleResolve:
       return StoreAction::kMultisampleResolve;
+    case MTLStoreActionStoreAndMultisampleResolve:
+      return StoreAction::kStoreAndMultisampleResolve;
     default:
       break;
   }
@@ -277,6 +330,16 @@ constexpr MTLSamplerMinMagFilter ToMTLSamplerMinMagFilter(MinMagFilter filter) {
   return MTLSamplerMinMagFilterNearest;
 }
 
+constexpr MTLSamplerMipFilter ToMTLSamplerMipFilter(MipFilter filter) {
+  switch (filter) {
+    case MipFilter::kNearest:
+      return MTLSamplerMipFilterNearest;
+    case MipFilter::kLinear:
+      return MTLSamplerMipFilterLinear;
+  }
+  return MTLSamplerMipFilterNotMipmapped;
+}
+
 constexpr MTLSamplerAddressMode ToMTLSamplerAddressMode(
     SamplerAddressMode mode) {
   switch (mode) {
@@ -286,6 +349,8 @@ constexpr MTLSamplerAddressMode ToMTLSamplerAddressMode(
       return MTLSamplerAddressModeRepeat;
     case SamplerAddressMode::kMirror:
       return MTLSamplerAddressModeMirrorRepeat;
+    case SamplerAddressMode::kDecal:
+      return MTLSamplerAddressModeClampToZero;
   }
   return MTLSamplerAddressModeClampToEdge;
 }

@@ -5,7 +5,7 @@
 import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 
-import '../frame_timings_common.dart';
+import '../common/frame_timings_common.dart';
 import 'common.dart';
 
 void main() {
@@ -19,5 +19,5 @@ void testMain() {
     test('collects frame timings', () async {
       await runFrameTimingsTest();
     });
-  }, skip: isIosSafari); // TODO(hterkelsen): https://github.com/flutter/flutter/issues/60040
+  });
 }

@@ -20,8 +20,11 @@ impeller_component("base") {
     "thread.h",
     "thread_safety.cc",
     "thread_safety.h",
+    "timing.h",
     "validation.cc",
     "validation.h",
+    "version.cc",
+    "version.h",
   ]
 
   deps = [ "//flutter/fml" ]

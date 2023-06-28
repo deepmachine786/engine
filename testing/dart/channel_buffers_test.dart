@@ -31,6 +31,9 @@ void main() {
       called = true;
     }
     buffers.push(channel, data, callback);
+    // Ignoring the deprecated member use because we're specifically testing
+    // deprecated API.
+    // ignore: deprecated_member_use
     await buffers.drain(channel, (ByteData? drainedData, ui.PlatformMessageResponseCallback drainedCallback) async {
       expect(drainedData, equals(data));
       assert(!called);
@@ -52,7 +55,9 @@ void main() {
 
     // Ignoring the returned future because the completion of the drain is
     // communicated using the `completer`.
-    // ignore: unawaited_futures
+    // Ignoring the deprecated member use because we're specifically testing
+    // deprecated API.
+    // ignore: deprecated_member_use
     buffers.drain(channel, (ByteData? drainedData, ui.PlatformMessageResponseCallback drainedCallback) async {
       log.add('callback');
       completer.complete();
@@ -78,6 +83,9 @@ void main() {
     _resize(buffers, channel, 0);
     buffers.push(channel, data, callback);
     bool didCall = false;
+    // Ignoring the deprecated member use because we're specifically testing
+    // deprecated API.
+    // ignore: deprecated_member_use
     await buffers.drain(channel, (ByteData? drainedData, ui.PlatformMessageResponseCallback drainedCallback) async {
       didCall = true;
     });
@@ -88,6 +96,9 @@ void main() {
     const String channel = 'foo';
     final ui.ChannelBuffers buffers = ui.ChannelBuffers();
     bool didCall = false;
+    // Ignoring the deprecated member use because we're specifically testing
+    // deprecated API.
+    // ignore: deprecated_member_use
     await buffers.drain(channel, (ByteData? drainedData, ui.PlatformMessageResponseCallback drainedCallback) async {
       didCall = true;
     });
@@ -108,17 +119,17 @@ void main() {
     buffers.push(channel, three, callback);
     buffers.push(channel, four, callback);
     int counter = 0;
+    // Ignoring the deprecated member use because we're specifically testing
+    // deprecated API.
+    // ignore: deprecated_member_use
     await buffers.drain(channel, (ByteData? drainedData, ui.PlatformMessageResponseCallback drainedCallback) async {
       switch (counter) {
         case 0:
           expect(drainedData, equals(two));
-          break;
         case 1:
           expect(drainedData, equals(three));
-          break;
         case 2:
           expect(drainedData, equals(four));
-          break;
       }
       counter += 1;
     });
@@ -136,6 +147,9 @@ void main() {
     buffers.push(channel, two, callback);
     _resize(buffers, channel, 1);
     int counter = 0;
+    // Ignoring the deprecated member use because we're specifically testing
+    // deprecated API.
+    // ignore: deprecated_member_use
     await buffers.drain(channel, (ByteData? drainedData, ui.PlatformMessageResponseCallback drainedCallback) async {
       switch (counter) {
         case 0:

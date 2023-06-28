@@ -5,17 +5,20 @@
 #ifndef FLUTTER_FLOW_LAYERS_CLIP_SHAPE_LAYER_H_
 #define FLUTTER_FLOW_LAYERS_CLIP_SHAPE_LAYER_H_
 
+#include "flutter/flow/layers/cacheable_layer.h"
 #include "flutter/flow/layers/container_layer.h"
 #include "flutter/flow/paint_utils.h"
 
 namespace flutter {
 
 template <class T>
-class ClipShapeLayer : public ContainerLayer {
+class ClipShapeLayer : public CacheableContainerLayer {
  public:
   using ClipShape = T;
   ClipShapeLayer(const ClipShape& clip_shape, Clip clip_behavior)
-      : clip_shape_(clip_shape), clip_behavior_(clip_behavior) {
+      : CacheableContainerLayer(),
+        clip_shape_(clip_shape),
+        clip_behavior_(clip_behavior) {
     FML_DCHECK(clip_behavior != Clip::none);
   }
 
@@ -29,63 +32,71 @@ class ClipShapeLayer : public ContainerLayer {
         context->MarkSubtreeDirty(context->GetOldLayerPaintRegion(old_layer));
       }
     }
+    if (UsesSaveLayer() && context->has_raster_cache()) {
+      context->WillPaintWithIntegralTransform();
+    }
     if (context->PushCullRect(clip_shape_bounds())) {
       DiffChildren(context, prev);
     }
     context->SetLayerPaintRegion(this, context->CurrentSubtreeRegion());
   }
 
-  void Preroll(PrerollContext* context, const SkMatrix& matrix) override {
-    SkRect previous_cull_rect = context->cull_rect;
-    if (!context->cull_rect.intersect(clip_shape_bounds())) {
-      context->cull_rect.setEmpty();
-    }
+  void Preroll(PrerollContext* context) override {
+    bool uses_save_layer = UsesSaveLayer();
+
+    // We can use the raster_cache for children only when the use_save_layer is
+    // true so if use_save_layer is false we pass the layer_raster_item is
+    // nullptr which mean we don't do raster cache logic.
+    AutoCache cache =
+        AutoCache(uses_save_layer ? layer_raster_cache_item_.get() : nullptr,
+                  context, context->state_stack.transform_3x3());
+
     Layer::AutoPrerollSaveLayerState save =
         Layer::AutoPrerollSaveLayerState::Create(context, UsesSaveLayer());
-    OnMutatorsStackPushClipShape(context->mutators_stack);
 
-    // Collect inheritance information on our children in Preroll so that
-    // we can pass it along by default.
-    context->subtree_can_inherit_opacity = true;
+    auto mutator = context->state_stack.save();
+    ApplyClip(mutator);
 
     SkRect child_paint_bounds = SkRect::MakeEmpty();
-    PrerollChildren(context, matrix, &child_paint_bounds);
+    PrerollChildren(context, &child_paint_bounds);
     if (child_paint_bounds.intersect(clip_shape_bounds())) {
       set_paint_bounds(child_paint_bounds);
+    } else {
+      set_paint_bounds(SkRect::MakeEmpty());
     }
 
     // If we use a SaveLayer then we can accept opacity on behalf
     // of our children and apply it in the saveLayer.
-    if (UsesSaveLayer()) {
-      context->subtree_can_inherit_opacity = true;
+    if (uses_save_layer) {
+      context->renderable_state_flags = kSaveLayerRenderFlags;
     }
-
-    context->mutators_stack.Pop();
-    context->cull_rect = previous_cull_rect;
   }
 
   void Paint(PaintContext& context) const override {
     FML_DCHECK(needs_painting(context));
 
-    SkAutoCanvasRestore save(context.internal_nodes_canvas, true);
-    OnCanvasClipShape(context.internal_nodes_canvas);
+    auto mutator = context.state_stack.save();
+    ApplyClip(mutator);
 
     if (!UsesSaveLayer()) {
       PaintChildren(context);
       return;
     }
 
-    AutoCachePaint cache_paint(context);
-    TRACE_EVENT0("flutter", "Canvas::saveLayer");
-    context.internal_nodes_canvas->saveLayer(paint_bounds(),
-                                             cache_paint.paint());
+    if (context.raster_cache) {
+      mutator.integralTransform();
+      auto restore_apply = context.state_stack.applyState(
+          paint_bounds(), LayerStateStack::kCallerCanApplyOpacity);
 
-    PaintChildren(context);
-
-    context.internal_nodes_canvas->restore();
-    if (context.checkerboard_offscreen_layers) {
-      DrawCheckerboard(context.internal_nodes_canvas, paint_bounds());
+      DlPaint paint;
+      if (layer_raster_cache_item_->Draw(context,
+                                         context.state_stack.fill(paint))) {
+        return;
+      }
     }
+
+    mutator.saveLayer(paint_bounds());
+    PaintChildren(context);
   }
 
   bool UsesSaveLayer() const {
@@ -94,8 +105,7 @@ class ClipShapeLayer : public ContainerLayer {
 
  protected:
   virtual const SkRect& clip_shape_bounds() const = 0;
-  virtual void OnMutatorsStackPushClipShape(MutatorsStack& mutators_stack) = 0;
-  virtual void OnCanvasClipShape(SkCanvas* canvas) const = 0;
+  virtual void ApplyClip(LayerStateStack::MutatorContext& mutator) const = 0;
   virtual ~ClipShapeLayer() = default;
 
   const ClipShape& clip_shape() const { return clip_shape_; }

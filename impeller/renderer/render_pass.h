@@ -7,6 +7,7 @@
 #include <string>
 
 #include "impeller/renderer/command.h"
+#include "impeller/renderer/command_buffer.h"
 #include "impeller/renderer/render_target.h"
 
 namespace impeller {
@@ -51,22 +52,24 @@ class RenderPass {
   //----------------------------------------------------------------------------
   /// @brief      Encode the recorded commands to the underlying command buffer.
   ///
-  /// @param      transients_allocator  The transients allocator.
-  ///
   /// @return     If the commands were encoded to the underlying command
   ///             buffer.
   ///
-  virtual bool EncodeCommands(
-      const std::shared_ptr<Allocator>& transients_allocator) const = 0;
+  bool EncodeCommands() const;
 
  protected:
+  const std::weak_ptr<const Context> context_;
   const RenderTarget render_target_;
   std::shared_ptr<HostBuffer> transients_buffer_;
   std::vector<Command> commands_;
 
-  RenderPass(RenderTarget target);
+  RenderPass(std::weak_ptr<const Context> context, const RenderTarget& target);
+
+  const std::weak_ptr<const Context>& GetContext() const;
 
   virtual void OnSetLabel(std::string label) = 0;
+
+  virtual bool OnEncodeCommands(const Context& context) const = 0;
 
  private:
   FML_DISALLOW_COPY_AND_ASSIGN(RenderPass);

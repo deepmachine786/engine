@@ -3,12 +3,17 @@
 // found in the LICENSE file.
 
 import 'dart:async';
-import 'dart:html' as html;
+import 'dart:js_interop';
 
 import 'package:ui/ui.dart' as ui;
 
+import 'dom.dart';
 import 'platform_dispatcher.dart';
 import 'safe_browser_api.dart';
+
+@JS('window._flutter_internal_on_benchmark')
+external JSAny? get _onBenchmark;
+Object? get onBenchmark => _onBenchmark?.toObjectShallow;
 
 /// A function that computes a value of type [R].
 ///
@@ -65,7 +70,6 @@ class Profiler {
 
   static bool isBenchmarkMode = const bool.fromEnvironment(
     'FLUTTER_WEB_ENABLE_PROFILING',
-    defaultValue: false,
   );
 
   static Profiler ensureInitialized() {
@@ -102,16 +106,10 @@ class Profiler {
   void benchmark(String name, double value) {
     _checkBenchmarkMode();
 
-    // First get the value as `Object?` then use `as` cast to check the type.
-    // This is because the type cast in `getJsProperty<Object?>` is optimized
-    // out at certain optimization levels in dart2js, leading to obscure errors
-    // later on.
-    final Object? onBenchmark = getJsProperty<Object?>(
-      html.window,
-      '_flutter_internal_on_benchmark',
-    );
-    onBenchmark as OnBenchmark?;
-    onBenchmark?.call(name, value);
+    final OnBenchmark? callback = onBenchmark as OnBenchmark?;
+    if (callback != null) {
+      callback(name, value);
+    }
   }
 }
 
@@ -224,7 +222,7 @@ void frameTimingsOnRasterFinish() {
 ///   particularly notes about Firefox rounding to 1ms for security reasons,
 ///   which can be bypassed in tests by setting certain browser options.
 int _nowMicros() {
-  return (html.window.performance.now() * 1000).toInt();
+  return (domWindow.performance.now() * 1000).toInt();
 }
 
 /// Counts various events that take place while the app is running.
@@ -254,7 +252,6 @@ class Instrumentation {
   }
   static bool _enabled = const bool.fromEnvironment(
     'FLUTTER_WEB_ENABLE_INSTRUMENTATION',
-    defaultValue: false,
   );
 
   /// Returns the singleton that provides instrumentation API.
@@ -263,7 +260,7 @@ class Instrumentation {
     return _instance;
   }
 
-  static late final Instrumentation _instance = Instrumentation._();
+  static final Instrumentation _instance = Instrumentation._();
 
   static void _checkInstrumentationEnabled() {
     if (!enabled) {

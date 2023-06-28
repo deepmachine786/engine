@@ -5,6 +5,7 @@
 #pragma once
 
 #include "flutter/fml/macros.h"
+#include "impeller/typographer/glyph_atlas.h"
 #include "impeller/typographer/text_run.h"
 
 namespace impeller {
@@ -43,7 +44,7 @@ class TextFrame {
   ///
   /// @return     If the text run could be added to this frame.
   ///
-  bool AddTextRun(TextRun run);
+  bool AddTextRun(const TextRun& run);
 
   //----------------------------------------------------------------------------
   /// @brief      Returns a reference to all the text runs in this frame.
@@ -52,8 +53,23 @@ class TextFrame {
   ///
   const std::vector<TextRun>& GetRuns() const;
 
+  //----------------------------------------------------------------------------
+  /// @brief      Whether any of the glyphs of this run are potentially
+  /// overlapping
+  ///
+  ///             It is always safe to return true from this method. Generally,
+  ///             any large blobs of text should return true to avoid
+  ///             computationally complex calculations. This information is used
+  ///             to apply opacity peephole optimizations to text blobs.
+  bool MaybeHasOverlapping() const;
+
+  //----------------------------------------------------------------------------
+  /// @brief      The type of atlas this run should be emplaced in.
+  GlyphAtlas::Type GetAtlasType() const;
+
  private:
   std::vector<TextRun> runs_;
+  bool has_color_ = false;
 };
 
 }  // namespace impeller

@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:html' as html;
-
 import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
 
-import '../../matchers.dart';
+import '../../common/matchers.dart';
 
 void main() {
   internalBootstrapBrowserTest(() => testMain);
@@ -33,7 +31,7 @@ void testMain() {
       test('recognizes viewTypes after registering them', () async {
         expect(contentManager.knowsViewType(viewType), isFalse);
 
-        contentManager.registerFactory(viewType, (int id) => html.DivElement());
+        contentManager.registerFactory(viewType, (int id) => createDomHTMLDivElement());
 
         expect(contentManager.knowsViewType(viewType), isTrue);
       });
@@ -43,7 +41,7 @@ void testMain() {
       test('recognizes viewIds after *rendering* them', () async {
         expect(contentManager.knowsViewId(viewId), isFalse);
 
-        contentManager.registerFactory(viewType, (int id) => html.DivElement());
+        contentManager.registerFactory(viewType, (int id) => createDomHTMLDivElement());
 
         expect(contentManager.knowsViewId(viewId), isFalse);
 
@@ -53,7 +51,7 @@ void testMain() {
       });
 
       test('forgets viewIds after clearing them', () {
-        contentManager.registerFactory(viewType, (int id) => html.DivElement());
+        contentManager.registerFactory(viewType, (int id) => createDomHTMLDivElement());
         contentManager.renderContent(viewType, viewId, null);
 
         expect(contentManager.knowsViewId(viewId), isTrue);
@@ -67,12 +65,12 @@ void testMain() {
     group('registerFactory', () {
       test('does NOT re-register factories', () async {
         contentManager.registerFactory(
-            viewType, (int id) => html.DivElement()..id = 'pass');
+            viewType, (int id) => createDomHTMLDivElement()..id = 'pass');
         // this should be rejected
         contentManager.registerFactory(
-            viewType, (int id) => html.SpanElement()..id = 'fail');
+            viewType, (int id) => createDomHTMLSpanElement()..id = 'fail');
 
-        final html.Element contents =
+        final DomElement contents =
             contentManager.renderContent(viewType, viewId, null);
 
         expect(contents.querySelector('#pass'), isNotNull);
@@ -87,11 +85,11 @@ void testMain() {
 
       setUp(() {
         contentManager.registerFactory(viewType, (int id) {
-          return html.DivElement()..setAttribute('data-viewId', '$id');
+          return createDomHTMLDivElement()..setAttribute('data-viewId', '$id');
         });
 
         contentManager.registerFactory(anotherViewType, (int id) {
-          return html.DivElement()
+          return createDomHTMLDivElement()
             ..setAttribute('data-viewId', '$id')
             ..style.height = 'auto'
             ..style.width = '55%';
@@ -109,20 +107,20 @@ void testMain() {
       });
 
       test('rendered markup contains required attributes', () async {
-        final html.Element content =
+        final DomElement content =
             contentManager.renderContent(viewType, viewId, null);
         expect(content.getAttribute('slot'), contains('$viewId'));
 
-        final html.Element userContent = content.querySelector('div')!;
+        final DomElement userContent = content.querySelector('div')!;
         expect(userContent.style.height, '100%');
         expect(userContent.style.width, '100%');
       });
 
       test('slot property has the same value as createPlatformViewSlot', () async {
-        final html.Element content =
+        final DomElement content =
             contentManager.renderContent(viewType, viewId, null);
-        final html.Element slot = createPlatformViewSlot(viewId);
-        final html.Element innerSlot = slot.querySelector('slot')!;
+        final DomElement slot = createPlatformViewSlot(viewId);
+        final DomElement innerSlot = slot.querySelector('slot')!;
 
         expect(content.getAttribute('slot'), innerSlot.getAttribute('name'),
             reason:
@@ -131,20 +129,78 @@ void testMain() {
 
       test('do not modify style.height / style.width if passed by the user (anotherViewType)',
           () async {
-        final html.Element content =
+        final DomElement content =
             contentManager.renderContent(anotherViewType, viewId, null);
-        final html.Element userContent = content.querySelector('div')!;
+        final DomElement userContent = content.querySelector('div')!;
         expect(userContent.style.height, 'auto');
         expect(userContent.style.width, '55%');
       });
 
       test('returns cached instances of already-rendered content', () async {
-        final html.Element firstRender =
+        final DomElement firstRender =
             contentManager.renderContent(viewType, viewId, null);
-        final html.Element anotherRender =
+        final DomElement anotherRender =
             contentManager.renderContent(viewType, viewId, null);
 
         expect(firstRender, same(anotherRender));
+      });
+    });
+
+    group('getViewById', () {
+      test('finds created views', () async {
+        final Map<int, DomElement> views1 = <int, DomElement>{
+          1: createDomHTMLDivElement(),
+          2: createDomHTMLDivElement(),
+          5: createDomHTMLDivElement(),
+        };
+        final Map<int, DomElement> views2 = <int, DomElement>{
+          3: createDomHTMLDivElement(),
+          4: createDomHTMLDivElement(),
+        };
+
+        contentManager.registerFactory('forTest1', (int id) => views1[id]!);
+        contentManager.registerFactory('forTest2', (int id) => views2[id]!);
+
+        // Render all 5 views.
+        for (final int id in views1.keys) {
+          contentManager.renderContent('forTest1', id, null);
+        }
+        for (final int id in views2.keys) {
+          contentManager.renderContent('forTest2', id, null);
+        }
+
+        // Check all 5 views.
+        for (final int id in views1.keys) {
+          expect(contentManager.getViewById(id), views1[id]);
+        }
+        for (final int id in views2.keys) {
+          expect(contentManager.getViewById(id), views2[id]);
+        }
+
+        // Throws for unknown viewId.
+        expect(() {
+          contentManager.getViewById(99);
+        }, throwsA(isA<AssertionError>()));
+      });
+
+      test('throws if view has been cleared', () {
+        final DomHTMLDivElement view = createDomHTMLDivElement();
+        contentManager.registerFactory(viewType, (int id) => view);
+
+        // Throws before viewId is rendered.
+        expect(() {
+          contentManager.getViewById(viewId);
+        }, throwsA(isA<AssertionError>()));
+
+        contentManager.renderContent(viewType, viewId, null);
+        // Succeeds after viewId is rendered.
+        expect(contentManager.getViewById(viewId), view);
+
+        contentManager.clearPlatformView(viewId);
+        // Throws after viewId is cleared.
+        expect(() {
+          contentManager.getViewById(viewId);
+        }, throwsA(isA<AssertionError>()));
       });
     });
   });

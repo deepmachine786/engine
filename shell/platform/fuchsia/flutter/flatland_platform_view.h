@@ -35,6 +35,7 @@ class FlatlandPlatformView final : public flutter_runner::PlatformView {
       fuchsia::ui::views::ViewRefFocusedHandle view_ref_focused,
       fuchsia::ui::composition::ParentViewportWatcherHandle
           parent_viewport_watcher,
+      fuchsia::ui::pointerinjector::RegistryHandle pointerinjector_registry,
       OnEnableWireframe wireframe_enabled_callback,
       OnCreateFlatlandView on_create_view_callback,
       OnUpdateView on_update_view_callback,
@@ -45,7 +46,8 @@ class FlatlandPlatformView final : public flutter_runner::PlatformView {
       OnShaderWarmup on_shader_warmup,
       AwaitVsyncCallback await_vsync_callback,
       AwaitVsyncForSecondaryCallbackCallback
-          await_vsync_for_secondary_callback_callback);
+          await_vsync_for_secondary_callback_callback,
+      std::shared_ptr<sys::ServiceDirectory> dart_application_svc);
   ~FlatlandPlatformView() override;
 
   void OnGetLayout(fuchsia::ui::composition::LayoutInfo info);
@@ -63,6 +65,15 @@ class FlatlandPlatformView final : public flutter_runner::PlatformView {
                     bool hit_testable,
                     bool focusable) override;
   void OnDisposeView(int64_t view_id_raw) override;
+
+  // Sends a 'View.viewConnected' platform message over 'flutter/platform_views'
+  // channel when a view gets created.
+  void OnChildViewConnected(uint64_t content_id);
+
+  // Sends a 'View.viewDisconnected' platform message over
+  // 'flutter/platform_views' channel when a view gets destroyed or the child
+  // view watcher channel of a view closes.
+  void OnChildViewDisconnected(uint64_t content_id);
 
   // child_view_ids_ maintains a persistent mapping from Flatland ContentId's to
   // flutter view ids, which are really zx_handle_t of ViewCreationToken.

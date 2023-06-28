@@ -27,7 +27,7 @@ namespace flutter {
 class AndroidSurfaceFactoryImpl : public AndroidSurfaceFactory {
  public:
   AndroidSurfaceFactoryImpl(const std::shared_ptr<AndroidContext>& context,
-                            std::shared_ptr<PlatformViewAndroidJNI> jni_facade);
+                            bool enable_impeller);
 
   ~AndroidSurfaceFactoryImpl() override;
 
@@ -35,7 +35,7 @@ class AndroidSurfaceFactoryImpl : public AndroidSurfaceFactory {
 
  private:
   const std::shared_ptr<AndroidContext>& android_context_;
-  std::shared_ptr<PlatformViewAndroidJNI> jni_facade_;
+  const bool enable_impeller_;
 };
 
 class PlatformViewAndroid final : public PlatformView {
@@ -43,8 +43,8 @@ class PlatformViewAndroid final : public PlatformView {
   static bool Register(JNIEnv* env);
 
   PlatformViewAndroid(PlatformView::Delegate& delegate,
-                      flutter::TaskRunners task_runners,
-                      std::shared_ptr<PlatformViewAndroidJNI> jni_facade,
+                      const flutter::TaskRunners& task_runners,
+                      const std::shared_ptr<PlatformViewAndroidJNI>& jni_facade,
                       bool use_software_rendering,
                       uint8_t msaa_samples);
 
@@ -55,7 +55,7 @@ class PlatformViewAndroid final : public PlatformView {
   ///
   PlatformViewAndroid(
       PlatformView::Delegate& delegate,
-      flutter::TaskRunners task_runners,
+      const flutter::TaskRunners& task_runners,
       const std::shared_ptr<PlatformViewAndroidJNI>& jni_facade,
       const std::shared_ptr<flutter::AndroidContext>& android_context);
 
@@ -155,6 +155,9 @@ class PlatformViewAndroid final : public PlatformView {
 
   // |PlatformView|
   void ReleaseResourceContext() const override;
+
+  // |PlatformView|
+  std::shared_ptr<impeller::Context> GetImpellerContext() const override;
 
   // |PlatformView|
   std::unique_ptr<std::vector<std::string>> ComputePlatformResolvedLocales(
